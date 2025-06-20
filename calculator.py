@@ -197,7 +197,8 @@ class ScientificCalculator:
                     self.sample_rate_input = ui.number('采样率 (Hz)', value=100, min=10, max=1000, step=10).classes('flex-1')
                 
                 with ui.row().classes('w-full gap-4 mb-4'):
-                    self.noise_level = ui.slider(min=0, max=1, value=0.1, step=0.01).props('label="噪声水平"').classes('flex-grow')
+                    ui.label('噪声水平').classes('w-full')
+                    self.noise_level = ui.slider(min=0, max=1, value=0.1, step=0.01).props('label-always').classes('flex-grow')
                     ui.button('📈 计算并绘制', on_click=self.compute_fft_and_plot).classes('bg-purple-500 text-white')
                 
                 with ui.card().classes('w-full'):
