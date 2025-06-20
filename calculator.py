@@ -355,12 +355,13 @@ class ScientificCalculator:
                 
                 with ui.row().classes('w-full gap-4 mb-4'):
                     self.fit_x_input = ui.textarea('X 数据 (逗号分隔)', 
-                                                 placeholder='例如: 1, 2, 3, 4, 5').classes('flex-1 h-24')
+                                                 placeholder='例如: 1, 2, 3, 4, 5').classes('flex-1')
                     self.fit_y_input = ui.textarea('Y 数据 (逗号分隔)', 
-                                                 placeholder='例如: 2, 4, 6, 8, 10').classes('flex-1 h-24')
-                
+                                                 placeholder='例如: 2, 4, 6, 8, 10').classes('flex-1')
+
+                self.deg_input = ui.number('多项式次数', value=1, min=1, max=10, step=1).classes('w-32')
+
                 with ui.row().classes('w-full gap-4 mb-4'):
-                    self.deg_input = ui.number('多项式次数', value=1, min=1, max=10, step=1).classes('w-32')
                     ui.button('📈 执行拟合', on_click=self.curve_fitting).classes('bg-green-500 text-white')
                     ui.button('🗑️ 清除', on_click=lambda: [
                         self.fit_x_input.set_value(''), 
@@ -420,16 +421,17 @@ class ScientificCalculator:
                 
                 with ui.row().classes('w-full gap-4 mb-4'):
                     self.vis_x_input = ui.textarea('X 数据 (逗号分隔)', 
-                                                 placeholder='例如: 1, 2, 3, 4, 5').classes('flex-1 h-24')
+                                                 placeholder='例如: 1, 2, 3, 4, 5').classes('flex-1')
                     self.vis_y_input = ui.textarea('Y 数据 (逗号分隔)', 
-                                                 placeholder='例如: 2, 4, 6, 8, 10').classes('flex-1 h-24')
+                                                 placeholder='例如: 2, 4, 6, 8, 10').classes('flex-1')
                 
-                with ui.row().classes('w-full gap-4 mb-4'):
-                    self.chart_type = ui.select(
+                self.chart_type = ui.select(
                         ['散点图', '折线图', '柱状图', '饼图'], 
                         value='散点图', 
                         label='图表类型'
                     ).classes('w-48')
+
+                with ui.row().classes('w-full gap-4 mb-4'):
                     ui.button('🎨 绘制图表', on_click=self.plot_data).classes('bg-purple-500 text-white')
                     ui.button('🗑️ 清除', on_click=lambda: [
                         self.vis_x_input.set_value(''), 
