@@ -4,10 +4,13 @@ from utils import (
     compute_integral, compute_statistics,
     create_fft_plot, create_fitting_plot, create_visualization_plot
 )
-import numpy as np
+
+import pandas as pd
+import io
 
 class ScientificCalculator:
     def __init__(self):
+        self.excel_data = None  # 存储Excel数据
         self.setup_styles()
         self.create_ui()
     
@@ -110,7 +113,7 @@ class ScientificCalculator:
                         ('(2+3)*4', '(2+3)*4'),
                         ('5²+√9', '5**2 + 9**0.5'),
                         ('sin(π/2)', 'sin(pi/2)'),
-                        ('ln(e)', 'log(np.e)'),
+                        ('ln(e)', 'log(e)'),
                         ('√(16)', 'sqrt(16)')
                     ]
                     for label, expr in examples:
@@ -301,8 +304,28 @@ class ScientificCalculator:
             with ui.card().classes('w-full'):
                 ui.label('📈 统计分析').classes('text-h5 mb-4')
                 
-                self.data_input = ui.textarea('输入数据 (逗号分隔)', 
-                                            placeholder='例如: 1, 2, 3, 4, 5, 6, 7, 8, 9, 10').classes('w-full h-32 mb-4')
+                # Excel上传功能
+                with ui.expansion('📊 Excel文件输入', icon='upload_file').classes('w-full mb-4'):
+                    with ui.row().classes('w-full gap-4 mb-4'):
+                        self.stats_excel_upload = ui.upload(
+                            on_upload=self.handle_stats_excel_upload,
+                            max_file_size=5_000_000,
+                            multiple=False
+                        ).props('accept=".xlsx,.xls"').classes('flex-1')
+                        ui.label('支持 .xlsx 和 .xls 格式，最大5MB').classes('text-sm text-gray-600')
+                    
+                    with ui.row().classes('w-full gap-4'):
+                        self.stats_column = ui.select(
+                            options=[], 
+                            label='选择数据列', 
+                            on_change=self.update_stats_data
+                        ).classes('flex-1')
+                        ui.button('📋 预览数据', on_click=self.preview_stats_data).classes('bg-blue-500 text-white')
+                
+                # 手动输入功能
+                with ui.expansion('✏️ 手动输入', icon='edit', value=True).classes('w-full mb-4'):
+                    self.data_input = ui.textarea('输入数据 (逗号分隔)', 
+                                                placeholder='例如: 1, 2, 3, 4, 5, 6, 7, 8, 9, 10').classes('w-full h-32 mb-4')
                 
                 with ui.row().classes('w-full gap-2 mb-4'):
                     ui.button('📊 计算统计量', on_click=self.compute_statistics).classes('bg-blue-500 text-white')
@@ -310,6 +333,11 @@ class ScientificCalculator:
                 
                 with ui.card().classes('result-card w-full'):
                     self.stats_result = ui.html('🎯 统计结果将显示在这里').classes('text-h6')
+                
+                # 数据预览区域
+                with ui.card().classes('w-full'):
+                    self.stats_preview = ui.html().classes('w-full')
+                    self.stats_preview.content = '<div class="text-center text-gray-500 p-4">📋 数据预览将显示在这里</div>'
                 
                 # 示例数据
                 ui.label('📝 示例数据:').classes('text-subtitle1 font-weight-bold mt-4')
@@ -322,31 +350,91 @@ class ScientificCalculator:
                     for label, data in examples:
                         ui.button(label, on_click=lambda d=data: self.data_input.set_value(d)).classes('example-button')
     
-    def compute_statistics(self):
-        """计算统计量"""
-        data_str = self.data_input.value
-        if not data_str:
-            self.stats_result.content = '❌ 请输入数据'
+    def handle_stats_excel_upload(self, e):
+        """处理统计分析功能的Excel文件上传"""
+        try:
+            # 读取Excel文件
+            content = e.content.read()
+            df = pd.read_excel(io.BytesIO(content))
+            self.excel_data = df
+            
+            # 更新列选择器选项，只显示数值列
+            numeric_columns = df.select_dtypes(include=['number']).columns.tolist()
+            all_columns = df.columns.tolist()
+            
+            # 优先显示数值列，但也包含所有列
+            self.stats_column.options = numeric_columns + [col for col in all_columns if col not in numeric_columns]
+            
+            # 显示成功消息
+            ui.notify(f'✅ Excel文件上传成功！共{len(df)}行，{len(numeric_columns)}个数值列', type='positive')
+            
+            # 自动选择第一个数值列（如果存在）
+            if numeric_columns:
+                self.stats_column.value = numeric_columns[0]
+                self.update_stats_data()
+                
+        except Exception as ex:
+            ui.notify(f'❌ Excel文件读取失败: {str(ex)}', type='negative')
+    
+    def update_stats_data(self):
+        """更新统计分析的数据"""
+        if self.excel_data is not None and self.stats_column.value:
+            try:
+                # 获取选中列的数据，去除空值
+                column_data = self.excel_data[self.stats_column.value].dropna()
+                
+                # 尝试转换为数值类型
+                try:
+                    numeric_data = pd.to_numeric(column_data, errors='coerce').dropna()
+                    data_str = ', '.join(str(x) for x in numeric_data.tolist())
+                    self.data_input.set_value(data_str)
+                    
+                    # 显示数据信息
+                    ui.notify(f'✅ 已加载 {len(numeric_data)} 个有效数值', type='positive')
+                    
+                except Exception:
+                    ui.notify(f'❌ 列 "{self.stats_column.value}" 包含非数值数据', type='negative')
+                    
+            except Exception as e:
+                ui.notify(f'❌ 数据更新失败: {str(e)}', type='negative')
+    
+    def preview_stats_data(self):
+        """预览统计分析的数据"""
+        if self.excel_data is None:
+            self.stats_preview.content = '<div class="text-red-500 text-center p-4">❌ 请先上传Excel文件</div>'
             return
         
         try:
-            stats_dict = compute_statistics(data_str)
-            stats_html = f'''
-            <div class="grid grid-cols-3 gap-4">
-                <div class="bg-blue-100 p-3 rounded"><strong>数据点数量:</strong> {stats_dict['count']}</div>
-                <div class="bg-green-100 p-3 rounded"><strong>平均值:</strong> {stats_dict['mean']:.4f}</div>
-                <div class="bg-yellow-100 p-3 rounded"><strong>中位数:</strong> {stats_dict['median']:.4f}</div>
-                <div class="bg-red-100 p-3 rounded"><strong>标准差:</strong> {stats_dict['std']:.4f}</div>
-                <div class="bg-purple-100 p-3 rounded"><strong>方差:</strong> {stats_dict['var']:.4f}</div>
-                <div class="bg-indigo-100 p-3 rounded"><strong>范围:</strong> {stats_dict['min']:.4f} - {stats_dict['max']:.4f}</div>
-                <div class="bg-pink-100 p-3 rounded"><strong>Q1:</strong> {stats_dict['q1']:.4f}</div>
-                <div class="bg-orange-100 p-3 rounded"><strong>Q3:</strong> {stats_dict['q3']:.4f}</div>
-                <div class="bg-gray-100 p-3 rounded"><strong>IQR:</strong> {stats_dict['q3'] - stats_dict['q1']:.4f}</div>
-            </div>
-            '''
-            self.stats_result.content = stats_html
+            # 创建预览表格，重点显示数值列
+            preview_df = self.excel_data.head(10)  # 只显示前10行
+            numeric_columns = self.excel_data.select_dtypes(include=['number']).columns.tolist()
+            
+            html_table = '<div class="overflow-x-auto">'
+            html_table += f'<h4 class="text-lg font-bold mb-2">数据预览 (数值列: {len(numeric_columns)}个)</h4>'
+            html_table += '<table class="w-full border-collapse border border-gray-300">'
+            html_table += '<thead><tr class="bg-gray-100">'
+            for col in preview_df.columns:
+                # 数值列用不同的背景色标识
+                bg_class = "bg-green-200" if col in numeric_columns else "bg-gray-100"
+                html_table += f'<th class="border border-gray-300 px-2 py-1 text-left {bg_class}">{col}</th>'
+            html_table += '</tr></thead><tbody>'
+            
+            for _, row in preview_df.iterrows():
+                html_table += '<tr>'
+                for col, val in zip(preview_df.columns, row):
+                    bg_class = "bg-green-50" if col in numeric_columns else ""
+                    html_table += f'<td class="border border-gray-300 px-2 py-1 {bg_class}">{val}</td>'
+                html_table += '</tr>'
+            html_table += '</tbody></table></div>'
+            
+            total_rows = len(self.excel_data)
+            html_table += f'<p class="text-sm text-gray-600 mt-2">显示前10行，共{total_rows}行数据</p>'
+            html_table += f'<p class="text-sm text-green-600">绿色背景列为数值列，推荐用于统计分析</p>'
+            
+            self.stats_preview.content = html_table
+            
         except Exception as e:
-            self.stats_result.content = f'<div class="text-red-500">❌ 错误: {str(e)}</div>'
+            self.stats_preview.content = f'<div class="text-red-500 text-center p-4">❌ 预览失败: {str(e)}</div>'
     
     def create_fitting_tab(self, tab):
         """创建曲线拟合面板"""
@@ -354,11 +442,36 @@ class ScientificCalculator:
             with ui.card().classes('w-full'):
                 ui.label('📉 曲线拟合').classes('text-h5 mb-4')
                 
-                with ui.row().classes('w-full gap-4 mb-4'):
-                    self.fit_x_input = ui.textarea('X 数据 (逗号分隔)', 
-                                                 placeholder='例如: 1, 2, 3, 4, 5').classes('flex-1')
-                    self.fit_y_input = ui.textarea('Y 数据 (逗号分隔)', 
-                                                 placeholder='例如: 2, 4, 6, 8, 10').classes('flex-1')
+                # Excel上传功能
+                with ui.expansion('📊 Excel文件输入', icon='upload_file').classes('w-full mb-4'):
+                    with ui.row().classes('w-full gap-4 mb-4'):
+                        self.fit_excel_upload = ui.upload(
+                            on_upload=self.handle_fitting_excel_upload,
+                            max_file_size=5_000_000,
+                            multiple=False
+                        ).props('accept=".xlsx,.xls"').classes('flex-1')
+                        ui.label('支持 .xlsx 和 .xls 格式，最大5MB').classes('text-sm text-gray-600')
+                    
+                    with ui.row().classes('w-full gap-4'):
+                        self.fit_x_column = ui.select(
+                            options=[], 
+                            label='X轴数据列', 
+                            on_change=self.update_fitting_x_data
+                        ).classes('flex-1')
+                        self.fit_y_column = ui.select(
+                            options=[], 
+                            label='Y轴数据列', 
+                            on_change=self.update_fitting_y_data
+                        ).classes('flex-1')
+                        ui.button('📋 预览数据', on_click=self.preview_fitting_data).classes('bg-blue-500 text-white')
+                
+                # 手动输入功能
+                with ui.expansion('✏️ 手动输入', icon='edit', value=True).classes('w-full mb-4'):
+                    with ui.row().classes('w-full gap-4 mb-4'):
+                        self.fit_x_input = ui.textarea('X 数据 (逗号分隔)', 
+                                                     placeholder='例如: 1, 2, 3, 4, 5').classes('flex-1')
+                        self.fit_y_input = ui.textarea('Y 数据 (逗号分隔)', 
+                                                     placeholder='例如: 2, 4, 6, 8, 10').classes('flex-1')
 
                 self.deg_input = ui.number('多项式次数', value=1, min=1, max=10, step=1).classes('w-32')
 
@@ -373,19 +486,87 @@ class ScientificCalculator:
                     self.fit_result = ui.html().classes('w-full')
                     self.fit_result.content = '<div class="text-center text-gray-500 p-8">📉 拟合结果将显示在这里</div>'
                 
-                # 示例数据
-                ui.label('📝 示例数据:').classes('text-subtitle1 font-weight-bold mt-4')
-                with ui.row().classes('flex-wrap gap-2'):
-                    examples = [
-                        ('线性关系', '1, 2, 3, 4, 5', '2.1, 3.9, 6.2, 8.1, 9.8'),
-                        ('二次关系', '1, 2, 3, 4, 5', '1, 4, 9, 16, 25'),
-                        ('指数趋势', '1, 2, 3, 4, 5', '2, 4, 8, 16, 32')
-                    ]
-                    for label, x_data, y_data in examples:
-                        ui.button(label, on_click=lambda x=x_data, y=y_data: [
-                            self.fit_x_input.set_value(x), 
-                            self.fit_y_input.set_value(y)
-                        ]).classes('example-button')
+                # 数据预览区域
+                with ui.card().classes('w-full'):
+                    self.fitting_preview = ui.html().classes('w-full')
+                    self.fitting_preview.content = '<div class="text-center text-gray-500 p-4">📋 数据预览将显示在这里</div>'
+    
+    def handle_fitting_excel_upload(self, e):
+        """处理拟合功能的Excel文件上传"""
+        try:
+            # 读取Excel文件
+            content = e.content.read()
+            df = pd.read_excel(io.BytesIO(content))
+            self.excel_data = df
+            
+            # 更新列选择器选项
+            columns = df.columns.tolist()
+            self.fit_x_column.options = columns
+            self.fit_y_column.options = columns
+            
+            # 显示成功消息
+            ui.notify(f'✅ Excel文件上传成功！共{len(df)}行，{len(columns)}列', type='positive')
+            
+            # 自动选择前两列（如果存在）
+            if len(columns) >= 2:
+                self.fit_x_column.value = columns[0]
+                self.fit_y_column.value = columns[1]
+                self.update_fitting_x_data()
+                self.update_fitting_y_data()
+                
+        except Exception as ex:
+            ui.notify(f'❌ Excel文件读取失败: {str(ex)}', type='negative')
+    
+    def update_fitting_x_data(self):
+        """更新拟合功能的X轴数据"""
+        if self.excel_data is not None and self.fit_x_column.value:
+            try:
+                x_data = self.excel_data[self.fit_x_column.value].dropna().tolist()
+                x_str = ', '.join(str(x) for x in x_data)
+                self.fit_x_input.set_value(x_str)
+            except Exception as e:
+                ui.notify(f'❌ X轴数据更新失败: {str(e)}', type='negative')
+    
+    def update_fitting_y_data(self):
+        """更新拟合功能的Y轴数据"""
+        if self.excel_data is not None and self.fit_y_column.value:
+            try:
+                y_data = self.excel_data[self.fit_y_column.value].dropna().tolist()
+                y_str = ', '.join(str(y) for y in y_data)
+                self.fit_y_input.set_value(y_str)
+            except Exception as e:
+                ui.notify(f'❌ Y轴数据更新失败: {str(e)}', type='negative')
+    
+    def preview_fitting_data(self):
+        """预览拟合功能的数据"""
+        if self.excel_data is None:
+            self.fitting_preview.content = '<div class="text-red-500 text-center p-4">❌ 请先上传Excel文件</div>'
+            return
+        
+        try:
+            # 创建预览表格
+            preview_df = self.excel_data.head(10)  # 只显示前10行
+            
+            html_table = '<div class="overflow-x-auto"><table class="w-full border-collapse border border-gray-300">'
+            html_table += '<thead><tr class="bg-gray-100">'
+            for col in preview_df.columns:
+                html_table += f'<th class="border border-gray-300 px-2 py-1 text-left">{col}</th>'
+            html_table += '</tr></thead><tbody>'
+            
+            for _, row in preview_df.iterrows():
+                html_table += '<tr>'
+                for val in row:
+                    html_table += f'<td class="border border-gray-300 px-2 py-1">{val}</td>'
+                html_table += '</tr>'
+            html_table += '</tbody></table></div>'
+            
+            total_rows = len(self.excel_data)
+            html_table += f'<p class="text-sm text-gray-600 mt-2">显示前10行，共{total_rows}行数据</p>'
+            
+            self.fitting_preview.content = html_table
+            
+        except Exception as e:
+            self.fitting_preview.content = f'<div class="text-red-500 text-center p-4">❌ 预览失败: {str(e)}</div>'
     
     def curve_fitting(self):
         """执行曲线拟合"""
@@ -420,11 +601,36 @@ class ScientificCalculator:
             with ui.card().classes('w-full'):
                 ui.label('🎨 数据可视化').classes('text-h5 mb-4')
                 
-                with ui.row().classes('w-full gap-4 mb-4'):
-                    self.vis_x_input = ui.textarea('X 数据 (逗号分隔)', 
-                                                 placeholder='例如: 1, 2, 3, 4, 5').classes('flex-1')
-                    self.vis_y_input = ui.textarea('Y 数据 (逗号分隔)', 
-                                                 placeholder='例如: 2, 4, 6, 8, 10').classes('flex-1')
+                # Excel上传功能
+                with ui.expansion('📊 Excel文件输入', icon='upload_file').classes('w-full mb-4'):
+                    with ui.row().classes('w-full gap-4 mb-4'):
+                        self.vis_excel_upload = ui.upload(
+                            on_upload=self.handle_visualization_excel_upload,
+                            max_file_size=5_000_000,
+                            multiple=False
+                        ).props('accept=".xlsx,.xls"').classes('flex-1')
+                        ui.label('支持 .xlsx 和 .xls 格式，最大5MB').classes('text-sm text-gray-600')
+                    
+                    with ui.row().classes('w-full gap-4'):
+                        self.vis_x_column = ui.select(
+                            options=[], 
+                            label='X轴数据列', 
+                            on_change=self.update_visualization_x_data
+                        ).classes('flex-1')
+                        self.vis_y_column = ui.select(
+                            options=[], 
+                            label='Y轴数据列', 
+                            on_change=self.update_visualization_y_data
+                        ).classes('flex-1')
+                        ui.button('📋 预览数据', on_click=self.preview_visualization_data).classes('bg-blue-500 text-white')
+                
+                # 手动输入功能
+                with ui.expansion('✏️ 手动输入', icon='edit', value=True).classes('w-full mb-4'):
+                    with ui.row().classes('w-full gap-4 mb-4'):
+                        self.vis_x_input = ui.textarea('X 数据 (逗号分隔)', 
+                                                     placeholder='例如: 1, 2, 3, 4, 5').classes('flex-1')
+                        self.vis_y_input = ui.textarea('Y 数据 (逗号分隔)', 
+                                                     placeholder='例如: 2, 4, 6, 8, 10').classes('flex-1')
                 
                 self.chart_type = ui.select(
                         ['散点图', '折线图', '柱状图', '饼图'], 
@@ -443,28 +649,272 @@ class ScientificCalculator:
                     self.vis_result = ui.html().classes('w-full')
                     self.vis_result.content = '<div class="text-center text-gray-500 p-8">🎨 图表将显示在这里</div>'
                 
-                # 修复示例数据
-                ui.label('📝 示例数据:').classes('text-subtitle1 font-weight-bold mt-4')
-                with ui.row().classes('flex-wrap gap-2'):
-                    # 修复正弦函数示例
-                    x_values = np.linspace(0, 2*np.pi, 20)
-                    x_sin = ', '.join(f'{x:.2f}' for x in x_values)
-                    y_sin = ', '.join(f'{np.sin(x):.3f}' for x in x_values)
-                    
-                    # 修复随机数据示例
-                    np.random.seed(42)  # 固定随机种子
-                    random_y = ', '.join(f'{x:.2f}' for x in np.random.rand(10)*10)
-                    
-                    examples = [
-                        ('正弦函数', x_sin, y_sin),
-                        ('随机数据', '1, 2, 3, 4, 5, 6, 7, 8, 9, 10', random_y),
-                        ('销售数据', '1月, 2月, 3月, 4月, 5月', '120, 135, 148, 162, 180')
-                    ]
-                    for label, x_data, y_data in examples:
-                        ui.button(label, on_click=lambda x=x_data, y=y_data: [
-                            self.vis_x_input.set_value(x),
-                            self.vis_y_input.set_value(y)
-                        ]).classes('example-button')
+                # 数据预览区域
+                with ui.card().classes('w-full'):
+                    self.visualization_preview = ui.html().classes('w-full')
+                    self.visualization_preview.content = '<div class="text-center text-gray-500 p-4">📋 数据预览将显示在这里</div>'
+    
+    def handle_visualization_excel_upload(self, e):
+        """处理可视化功能的Excel文件上传"""
+        try:
+            # 读取Excel文件
+            content = e.content.read()
+            df = pd.read_excel(io.BytesIO(content))
+            self.excel_data = df
+            
+            # 更新列选择器选项
+            columns = df.columns.tolist()
+            self.vis_x_column.options = columns
+            self.vis_y_column.options = columns
+            
+            # 显示成功消息
+            ui.notify(f'✅ Excel文件上传成功！共{len(df)}行，{len(columns)}列', type='positive')
+            
+            # 自动选择前两列（如果存在）
+            if len(columns) >= 2:
+                self.vis_x_column.value = columns[0]
+                self.vis_y_column.value = columns[1]
+                self.update_visualization_x_data()
+                self.update_visualization_y_data()
+                
+        except Exception as ex:
+            ui.notify(f'❌ Excel文件读取失败: {str(ex)}', type='negative')
+    
+    def update_visualization_x_data(self):
+        """更新可视化功能的X轴数据"""
+        if self.excel_data is not None and self.vis_x_column.value:
+            try:
+                x_data = self.excel_data[self.vis_x_column.value].dropna().tolist()
+                x_str = ', '.join(str(x) for x in x_data)
+                self.vis_x_input.set_value(x_str)
+            except Exception as e:
+                ui.notify(f'❌ X轴数据更新失败: {str(e)}', type='negative')
+    
+    def update_visualization_y_data(self):
+        """更新可视化功能的Y轴数据"""
+        if self.excel_data is not None and self.vis_y_column.value:
+            try:
+                y_data = self.excel_data[self.vis_y_column.value].dropna().tolist()
+                y_str = ', '.join(str(y) for y in y_data)
+                self.vis_y_input.set_value(y_str)
+            except Exception as e:
+                ui.notify(f'❌ Y轴数据更新失败: {str(e)}', type='negative')
+    
+    def preview_visualization_data(self):
+        """预览可视化功能的数据"""
+        if self.excel_data is None:
+            self.visualization_preview.content = '<div class="text-red-500 text-center p-4">❌ 请先上传Excel文件</div>'
+            return
+        
+        try:
+            # 创建预览表格
+            preview_df = self.excel_data.head(10)  # 只显示前10行
+            
+            html_table = '<div class="overflow-x-auto"><table class="w-full border-collapse border border-gray-300">'
+            html_table += '<thead><tr class="bg-gray-100">'
+            for col in preview_df.columns:
+                html_table += f'<th class="border border-gray-300 px-2 py-1 text-left">{col}</th>'
+            html_table += '</tr></thead><tbody>'
+            
+            for _, row in preview_df.iterrows():
+                html_table += '<tr>'
+                for val in row:
+                    html_table += f'<td class="border border-gray-300 px-2 py-1">{val}</td>'
+                html_table += '</tr>'
+            html_table += '</tbody></table></div>'
+            
+            total_rows = len(self.excel_data)
+            html_table += f'<p class="text-sm text-gray-600 mt-2">显示前10行，共{total_rows}行数据</p>'
+            
+            self.visualization_preview.content = html_table
+            
+        except Exception as e:
+            self.visualization_preview.content = f'<div class="text-red-500 text-center p-4">❌ 预览失败: {str(e)}</div>'
+    
+    def plot_data(self):
+        """绘制数据图表"""
+        x_str = self.vis_x_input.value
+        y_str = self.vis_y_input.value
+        chart_type = self.chart_type.value
+        
+        if not x_str or not y_str:
+            self.vis_result.content = '❌ 请输入X和Y数据'
+            return
+        
+        try:
+            # 改进数据转换逻辑
+            x_parts = [x.strip() for x in x_str.split(',')]
+            y_parts = [y.strip() for y in y_str.split(',')]
+            
+            # 处理X数据
+            x_data = []
+            for i, x in enumerate(x_parts):
+                try:
+                    # 尝试转换为数字
+                    x_data.append(float(x))
+                except ValueError:
+                    # 如果不能转换为数字，保留字符串
+                    x_data.append(x)
+            
+            # 处理Y数据
+            y_data = []
+            for y in y_parts:
+                try:
+                    y_data.append(float(y))
+                except ValueError:
+                    raise ValueError(f"Y数据 '{y}' 不是有效数字")
+            
+            if len(x_data) != len(y_data):
+                self.vis_result.content = '<div class="text-red-500 text-center p-4">❌ X和Y数据数量不一致</div>'
+                return
+            
+            img_base64 = create_visualization_plot(x_data, y_data, chart_type)
+            
+            self.vis_result.content = f'''
+            <div class="text-center">
+                <h3 class="text-lg font-bold mb-4">{chart_type}可视化结果</h3>
+                <img src="data:image/png;base64,{img_base64}" class="w-full h-auto rounded-lg shadow-lg">
+            </div>
+            '''
+            
+        except Exception as e:
+            self.vis_result.content = f'<div class="text-red-500 text-center p-4">❌ 错误: {str(e)}</div>'
+    
+    def compute_statistics(self):
+        """计算统计量"""
+        data_str = self.data_input.value
+        
+        if not data_str:
+            self.stats_result.content = '❌ 请输入数据'
+            return
+        
+        try:
+            stats = compute_statistics(data_str)
+            
+            # 创建统计结果的HTML表格
+            html_content = '''
+            <div class="bg-blue-50 p-4 rounded-lg">
+                <h3 class="text-lg font-bold mb-4 text-center">📊 统计分析结果</h3>
+                <div class="grid grid-cols-2 gap-4">
+                    <div class="bg-white p-3 rounded border">
+                        <p><strong>数据个数:</strong> {count}</p>
+                        <p><strong>平均值:</strong> {mean:.6f}</p>
+                        <p><strong>中位数:</strong> {median:.6f}</p>
+                    </div>
+                    <div class="bg-white p-3 rounded border">
+                        <p><strong>标准差:</strong> {std:.6f}</p>
+                        <p><strong>方差:</strong> {var:.6f}</p>
+                        <p><strong>变异系数:</strong> {cv:.6f}</p>
+                    </div>
+                    <div class="bg-white p-3 rounded border">
+                        <p><strong>最小值:</strong> {min:.6f}</p>
+                        <p><strong>最大值:</strong> {max:.6f}</p>
+                        <p><strong>极差:</strong> {range:.6f}</p>
+                    </div>
+                    <div class="bg-white p-3 rounded border">
+                        <p><strong>第一四分位数:</strong> {q1:.6f}</p>
+                        <p><strong>第三四分位数:</strong> {q3:.6f}</p>
+                        <p><strong>四分位距:</strong> {iqr:.6f}</p>
+                    </div>
+                </div>
+            </div>
+            '''.format(
+                count=stats['count'],
+                mean=stats['mean'],
+                median=stats['median'],
+                std=stats['std'],
+                var=stats['var'],
+                cv=stats['std']/stats['mean'] if stats['mean'] != 0 else 0,
+                min=stats['min'],
+                max=stats['max'],
+                range=stats['max'] - stats['min'],
+                q1=stats['q1'],
+                q3=stats['q3'],
+                iqr=stats['q3'] - stats['q1']
+            )
+            
+            self.stats_result.content = html_content
+            
+        except Exception as e:
+            self.stats_result.content = f'<div class="text-red-500 text-center p-4">❌ 错误: {str(e)}</div>'
+            self.visualization_preview.content = '<div class="text-center text-gray-500 p-4">📋 数据预览将显示在这里</div>'
+    
+    def handle_visualization_excel_upload(self, e):
+        """处理可视化功能的Excel文件上传"""
+        try:
+            # 读取Excel文件
+            content = e.content.read()
+            df = pd.read_excel(io.BytesIO(content))
+            self.excel_data = df
+            
+            # 更新列选择器选项
+            columns = df.columns.tolist()
+            self.vis_x_column.options = columns
+            self.vis_y_column.options = columns
+            
+            # 显示成功消息
+            ui.notify(f'✅ Excel文件上传成功！共{len(df)}行，{len(columns)}列', type='positive')
+            
+            # 自动选择前两列（如果存在）
+            if len(columns) >= 2:
+                self.vis_x_column.value = columns[0]
+                self.vis_y_column.value = columns[1]
+                self.update_visualization_x_data()
+                self.update_visualization_y_data()
+                
+        except Exception as ex:
+            ui.notify(f'❌ Excel文件读取失败: {str(ex)}', type='negative')
+    
+    def update_visualization_x_data(self):
+        """更新可视化功能的X轴数据"""
+        if self.excel_data is not None and self.vis_x_column.value:
+            try:
+                x_data = self.excel_data[self.vis_x_column.value].dropna().tolist()
+                x_str = ', '.join(str(x) for x in x_data)
+                self.vis_x_input.set_value(x_str)
+            except Exception as e:
+                ui.notify(f'❌ X轴数据更新失败: {str(e)}', type='negative')
+    
+    def update_visualization_y_data(self):
+        """更新可视化功能的Y轴数据"""
+        if self.excel_data is not None and self.vis_y_column.value:
+            try:
+                y_data = self.excel_data[self.vis_y_column.value].dropna().tolist()
+                y_str = ', '.join(str(y) for y in y_data)
+                self.vis_y_input.set_value(y_str)
+            except Exception as e:
+                ui.notify(f'❌ Y轴数据更新失败: {str(e)}', type='negative')
+    
+    def preview_visualization_data(self):
+        """预览可视化功能的数据"""
+        if self.excel_data is None:
+            self.visualization_preview.content = '<div class="text-red-500 text-center p-4">❌ 请先上传Excel文件</div>'
+            return
+        
+        try:
+            # 创建预览表格
+            preview_df = self.excel_data.head(10)  # 只显示前10行
+            
+            html_table = '<div class="overflow-x-auto"><table class="w-full border-collapse border border-gray-300">'
+            html_table += '<thead><tr class="bg-gray-100">'
+            for col in preview_df.columns:
+                html_table += f'<th class="border border-gray-300 px-2 py-1 text-left">{col}</th>'
+            html_table += '</tr></thead><tbody>'
+            
+            for _, row in preview_df.iterrows():
+                html_table += '<tr>'
+                for val in row:
+                    html_table += f'<td class="border border-gray-300 px-2 py-1">{val}</td>'
+                html_table += '</tr>'
+            html_table += '</tbody></table></div>'
+            
+            total_rows = len(self.excel_data)
+            html_table += f'<p class="text-sm text-gray-600 mt-2">显示前10行，共{total_rows}行数据</p>'
+            
+            self.visualization_preview.content = html_table
+            
+        except Exception as e:
+            self.visualization_preview.content = f'<div class="text-red-500 text-center p-4">❌ 预览失败: {str(e)}</div>'
     
     def plot_data(self):
         """绘制数据图表"""
