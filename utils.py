@@ -14,9 +14,7 @@ plt.rcParams['axes.facecolor'] = 'white'
 def safe_eval(expr):
     """安全评估数学表达式"""
     # 替换常见的数学符号
-    expr = expr.replace('^', '**').replace('π', 'np.pi').replace('e', 'np.e')
-    # 添加更多符号替换
-    expr = expr.replace('π', 'np.pi').replace('pi', 'np.pi')
+    expr = expr.replace('^', '**').replace('π', 'pi')
     
     try:
         # 安全地评估表达式

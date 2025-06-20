@@ -109,9 +109,9 @@ class ScientificCalculator:
                         ('2+3*4', '2+3*4'),
                         ('(2+3)*4', '(2+3)*4'),
                         ('5²+√9', '5**2 + 9**0.5'),
-                        ('sin(π/2)', 'np.sin(np.pi/2)'),
-                        ('ln(e)', 'np.log(np.e)'),
-                        ('√(16)', 'np.sqrt(16)')
+                        ('sin(π/2)', 'sin(pi/2)'),
+                        ('ln(e)', 'log(np.e)'),
+                        ('√(16)', 'sqrt(16)')
                     ]
                     for label, expr in examples:
                         ui.button(label, 
